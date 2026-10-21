@@ -25,6 +25,9 @@
 #if defined(ENABLE_MSGSTORE)
 #include "msgstore_api.h"   // stage 3: store node (last-hop mailbox) receive-path hooks
 #endif
+#if defined(ESP32)
+#include "web_functions/web_task.h"  // g_web_data_mux vs web mheard/rxlog pages
+#endif
 
 #ifdef SX127X
     #include <RadioLib.h>
@@ -1387,11 +1390,19 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
                 topoUiChanged(now_min);
             }
 
-            // LoRx RX to RAW-Buffer
+            // LoRx RX to RAW-Buffer (mutex vs web rxlog page on ESP32)
             //memcpy(ringbufferRAWLoraRX[RAWLoRaWrite], charBuffer_aprs((char*)"", aprsmsg).c_str(), UDP_TX_BUF_SIZE-1);
+#if defined(ESP32)
+            if(webDataLockMs(10))
+            {
+                charBuffer_aprs(aprsmsg);
+                addRingPointer(RAWLoRaWrite, RAWLoRaRead, MAX_LOG, "raw_rx");
+                webDataUnlock();
+            }
+#else
             charBuffer_aprs(aprsmsg);
-
             addRingPointer(RAWLoRaWrite, RAWLoRaRead, MAX_LOG, "raw_rx");
+#endif
             
             //printfdeb("LOG Write next: %i read next:%i\n", RAWLoRaWrite, RAWLoRaRead);
 

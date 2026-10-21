@@ -147,6 +147,7 @@ Arduino_GFX *gfx = new Arduino_ST7796(
 #include <extudp_functions.h>
 #include <kiss_functions.h>
 #include <web_functions/web_functions.h>
+#include <web_functions/web_task.h>
 #include <mh_phone.h>
 #include <topo_ui.h>
 #include <time_functions.h>
@@ -2081,6 +2082,9 @@ void esp32setup()
     // Hänger in einen anonymen Boot-Loop verwandelt. Bewacht wird ab jetzt
     // ausschließlich esp32loop(), das sich in :esp32loop() selbst füttert.
     esp_task_wdt_add(NULL);
+
+    /* Web UI on mesh_web (prio 0, core 1) — never blocks checkRX in this loop. */
+    webTaskStart();
 }
 
 // BLE TX Function -> Node to Client.
@@ -3209,9 +3213,9 @@ void esp32loop()
             }
             else
             {
-                // restart WEB-Client
+                // restart WEB-Client (mesh_web owns stopWebserver)
                 if(bWEBSERVER)
-                    stopWebserver();
+                    webTaskRequestStop();
 
                 startNetwork();
 
@@ -3392,6 +3396,9 @@ void esp32loop()
             { INSTR_SECTION("ble_cmd"); LOOP_SECTION(LSEC_BLE_CMD); readPhoneCommand(bleItem.data); }
         }
     }
+
+    // Web→loop command queue (setparam / send / save_settings from mesh_web)
+    webCmdDrain();
 
     if(hasMsgFromPhone)
     {
@@ -4114,9 +4121,9 @@ void esp32loop()
                         // on its own (a driver-side join is harvested below).
                         if(wifiTrulyOffline())
                         {
-                            // restart WEB-Client
+                            // restart WEB-Client (mesh_web owns stopWebserver)
                             if(bWEBSERVER)
-                                stopWebserver();
+                                webTaskRequestStop();
 
                             startNetwork();
                         }
@@ -4152,14 +4159,7 @@ void esp32loop()
         wifiLinkHeartbeat();
         #endif
 
-        if(bWEBSERVER && iWlanWait == 0)
-        {
-            LOOP_SECTION(LSEC_WEB);   // F3: a blocked WiFiClient::write() lands here
-
-            startWebserver();
-
-            loopWebserver();
-        }
+        /* Web HTTP runs on mesh_web FreeRTOS task — do not call loopWebserver here. */
 
         #ifndef DISABLE_NET_CONSOLE
         if(iWlanWait == 0)

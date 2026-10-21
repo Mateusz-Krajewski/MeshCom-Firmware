@@ -42,6 +42,7 @@
 #include "web_setup.h"
 #include "web_nodefunctioncalls.h"
 #include "web_commonServer.h"
+#include "web_task.h"
 #include "gw_link_status.h"
 #include "gw_servers.h"
 #if defined(NRF52_SERIES)
@@ -626,7 +627,13 @@ static void sub_config_upload(long content_length)
         return;
     }
 
-    save_settings();
+    if(!webSubmitSaveSettings())
+    {
+        send_http_header(503, RESPONSE_TYPE_TEXT);
+        web_client.printf("<p>config import queued failed (busy)</p>");
+        Serial.printf("[WEB];cmd;drop;save\n");
+        return;
+    }
 
     send_http_header(200, RESPONSE_TYPE_TEXT);
     web_client.printf("<html><body><h3>config imported</h3><p>%s</p><p>the node reboots now.</p></body></html>", err);
@@ -833,9 +840,15 @@ String work_webpage(bool bget_password, int webid)
                             sub_page_path();
                         }
                         else if (web_header.indexOf("/?page=spectrum") >= 0)
-                        { // user requested the path page
+                        {
+#ifdef ESP32
+                            /* Fence: sx126x_spectral_* must not run concurrent with checkRX on mesh_web. */
+                            send_http_header(503, RESPONSE_TYPE_TEXT);
+                            web_client.println("<html><body><p>Spectrum scan is not available from the web UI on ESP32 (radio conflict).</p></body></html>");
+#else
                             send_http_header(200, RESPONSE_TYPE_TEXT);
                             sub_page_spectrum();
+#endif
                         }
                         else if (web_header.indexOf("/?page=mcp23017") >= 0)
                         { // user requested the path page
@@ -1478,6 +1491,12 @@ static String getEffectiveNtpServer()
  */
 void sub_page_rxlog()
 {
+    if(!webDataLockMs(50))
+    {
+        _create_meshcom_subheader("RX Log");
+        web_client.println("<div id=\"content_inner\"><p>Busy (radio), try again.</p></div>");
+        return;
+    }
     // Start at the write slot: once the ring has wrapped it holds the oldest
     // line (addRingPointer() keeps the read pointer one slot ahead of it).
     int iRead = RAWLoRaWrite;
@@ -1545,6 +1564,7 @@ void sub_page_rxlog()
     }
     web_client.println("</div></div>");
     web_client.println(); // The HTTP response ends with another blank line
+    webDataUnlock();
 }
 
 /**
@@ -1652,6 +1672,12 @@ static void webPrintFw(uint8_t ver, char sub)
  */
 void sub_page_mheard()
 {
+    if(!webDataLockMs(50))
+    {
+        _create_meshcom_subheader("MHeard Information");
+        web_client.println("<div id=\"content_inner\"><p>Busy (radio), try again.</p></div>");
+        return;
+    }
     // Konzept 4.6: dieselbe Minuten-seit-Boot-Uhr wie der OnRxDone-Haken und
     // die Neighbours-Seite (nbrFresh() etc.) -- alle Leser rechnen gegen
     // dieselbe Uhr.
@@ -1683,6 +1709,7 @@ void sub_page_mheard()
         web_client.println("<p>Not enough memory to render MHeard.</p>");
         web_client.println("</div>");
         web_client.println(); // The HTTP response ends with another blank line
+        webDataUnlock();
         return;
     }
 
@@ -1808,6 +1835,7 @@ void sub_page_mheard()
         web_client.println("<p>No Nodes heard so far.</p>"); // no nodes available? Tell the user
     web_client.println("</div>");
     web_client.println(); // The HTTP response ends with another blank line
+    webDataUnlock();
 }
 
 // W2c CONTRACT: jede Zeile ausserhalb von nbr_matrix.cpp liest nur ueber die
@@ -2192,6 +2220,12 @@ void sub_page_path()
  */
 void sub_page_neighbours()
 {
+    if(!webDataLockMs(50))
+    {
+        _create_meshcom_subheader("Neighbours");
+        web_client.println("<div id=\"content_inner\"><p>Busy (radio), try again.</p></div>");
+        return;
+    }
     // Vertragspunkt mit dem OnRxDone-Haken (lora_functions.cpp): dieselbe
     // Minuten-seit-Boot-Umrechnung, sonst laufen Web-Seite und Schreiber
     // gegen unterschiedliche Uhren.
@@ -2206,6 +2240,7 @@ void sub_page_neighbours()
         web_client.println("<p>No frames received yet.</p>");
         web_client.println("</div>");
         web_client.println(); // The HTTP response ends with another blank line
+        webDataUnlock();
         return;
     }
 
@@ -2226,6 +2261,7 @@ void sub_page_neighbours()
         web_client.println("<p>Not enough memory to render the neighbour matrix.</p>");
         web_client.println("</div>");
         web_client.println(); // The HTTP response ends with another blank line
+        webDataUnlock();
         return;
     }
     uint8_t *idx = scratch + 0 * NBR_MAX_ROWS;
@@ -2658,6 +2694,7 @@ void sub_page_neighbours()
     web_client.println("</div>");
     web_client.println(); // The HTTP response ends with another blank line
     free(scratch);
+    webDataUnlock();
 }
 
 /**
@@ -4044,20 +4081,15 @@ void send_message(String web_header)
             // new massage has to be different from previous message
             if (iml > 0)
             {
-                hasMsgFromPhone = true;
-                setMsgOrigin(ORIGIN_WEB);   // BP-01: notice goes back to the web GUI
-                int bp_rc = sendMessage(message_text, iml);
-                setMsgOrigin(ORIGIN_NONE);
-                hasMsgFromPhone = false;
-                // Serial.print("Message send: ");
-                // Serial.println(message_text);
-
-                switch (bp_rc)
+                if(!webSubmitSend(message_text, iml))
                 {
-                    case BP_SEND_REFUSED: bp_result_text = "sendmessage refused"; break;
-                    case BP_SEND_DROPPED: bp_result_text = "sendmessage dropped"; break;
-                    case BP_SEND_INVALID: bp_result_text = "sendmessage invalid"; break;
-                    default:              bp_result_text = "sendmessage ok";      break;
+                    bp_result_text = "sendmessage dropped";
+                    Serial.printf("[WEB];cmd;drop;send\n");
+                }
+                else
+                {
+                    /* Queued/executed on loop; detailed BP codes only on sync path. */
+                    bp_result_text = "sendmessage ok";
                 }
             }
         }

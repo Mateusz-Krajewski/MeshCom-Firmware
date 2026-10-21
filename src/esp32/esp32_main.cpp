@@ -2083,8 +2083,8 @@ void esp32setup()
     // ausschließlich esp32loop(), das sich in :esp32loop() selbst füttert.
     esp_task_wdt_add(NULL);
 
-    /* Web UI on mesh_web (prio 0, core 1) — never blocks checkRX in this loop. */
-    webTaskStart();
+    /* mesh_web starts after [BOOT];ready in esp32loop() — avoids first-boot
+     * ipc1 stack canary when WiFi/MDNS init races a core-1 web task. */
 }
 
 // BLE TX Function -> Node to Client.
@@ -2193,6 +2193,8 @@ void esp32loop()
             // von --debug csv entfernen und der Harness faende die Marke nicht.
             Serial.printf("[BOOT];ready;ms;%lu;ip;%d\n", (unsigned long)millis(),
                           (hasIPaddress || meshcom_settings.node_hasIPaddress) ? 1 : 0);
+            /* Web UI on mesh_web (prio 0, core 1) — after boot mark, not in setup. */
+            webTaskStart();
             #if defined(BENCH_BLE_ADV_LATE) && !defined(DISABLE_BLE)
             NimBLEDevice::getAdvertising()->start();
             Serial.printf("[BLE ];advertising;started;ms;%lu\n", (unsigned long)millis());

@@ -41,7 +41,9 @@ struct WebCmdItem
     int len;   // for SEND
 };
 
-static const uint32_t WEB_TASK_STACK = 10240;
+/* 10 KB was enough after warm reboot but first cold boot (MDNS/WiFi + ipc1)
+ * tripped a stack canary on Heltec Wireless Tracker. Match audio task budget. */
+static const uint32_t WEB_TASK_STACK = (16 * 1024);
 static const UBaseType_t WEB_TASK_PRIO = 0;
 static const BaseType_t WEB_TASK_CORE = 1;
 static const UBaseType_t WEB_CMD_DEPTH = 8;
@@ -191,8 +193,14 @@ void webTaskRequestStop(void)
 
 static void mesh_web_task(void * /*arg*/)
 {
-    Serial.printf("[WEB];task;start;prio;%u;core;%d\n",
-                  (unsigned)WEB_TASK_PRIO, (int)WEB_TASK_CORE);
+    /* Yield before any WiFi/MDNS work so loop/WiFi (core 0) finish boot IPC. */
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    Serial.printf("[WEB];task;start;prio;%u;core;%d;stack;%u\n",
+                  (unsigned)WEB_TASK_PRIO, (int)WEB_TASK_CORE,
+                  (unsigned)WEB_TASK_STACK);
+
+    uint32_t loops = 0;
 
     for(;;)
     {
@@ -217,6 +225,15 @@ static void mesh_web_task(void * /*arg*/)
             s_web_was_up = true;
             loopWebserver();
         }
+
+        if(loops == 0 || loops == 50)
+        {
+            UBaseType_t hwm = uxTaskGetStackHighWaterMark(NULL);
+            Serial.printf("[WEB];task;hwm;words;%u;loops;%lu\n",
+                          (unsigned)hwm, (unsigned long)loops);
+        }
+        loops++;
+
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }

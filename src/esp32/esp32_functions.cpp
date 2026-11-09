@@ -200,7 +200,12 @@ void initDisplay()
         return;
     }
 
-    #if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4) || defined(BOARD_STICK_V3)
+    #if defined(BOARD_HELTEC_V3)
+        // OLED on Wire, shared with the sensors (BME280) on 17/18; Wire is
+        // already open since setup (Wire.begin(I2C_SDA, I2C_SCL)). 400 kHz is
+        // fine for SSD1306/SH1106 and BME280.
+        u8g2->setBusClock(400000);
+    #elif defined(BOARD_HELTEC_V4) || defined(BOARD_STICK_V3)
         // OLED auf dem zweiten I2C-Controller (Wire1, Pins des Displays),
         // Wire bleibt den Sensoren; U8g2 ruft Wire1.begin() ohne Pins auf und
         // uebernimmt die hier gesetzten. 400 kHz statt 100 kHz.
@@ -220,7 +225,14 @@ void initDisplay()
 
     u8g2->begin();
 
-    #if defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4) || defined(BOARD_STICK_V3)
+    #if defined(BOARD_HELTEC_V3)
+    {
+        // Boot diagnostics: does the panel ACK on Wire? (0 = ACK)
+        Wire.beginTransmission(0x3C);
+        int ack = Wire.endTransmission();
+        printfdeb("[INIT]...OLED on Wire SDA %d SCL %d: ack=%d clock=%lu\n", I2C_SDA, I2C_SCL, ack, (unsigned long)Wire.getClock());
+    }
+    #elif defined(BOARD_HELTEC_V4) || defined(BOARD_STICK_V3)
     {
         // Boot-Diagnose: antwortet das Panel auf Wire1? (0 = ACK)
         Wire1.beginTransmission(0x3C);

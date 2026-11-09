@@ -392,6 +392,7 @@ bool bGPSL76K = false;
 bool bBMPON = false;
 bool bBMP3ON = false;
 bool bAHT20ON = false;
+bool bAPRSWX = false;   // MCFW-WX1: APRS-IS weather enabled (mirror of node_aprswx; ESP32 only)
 bool bUVON = false;
 bool bWINDON = false;
 #if defined(ENABLE_LTR390) || defined(ENABLE_WIND)
@@ -642,7 +643,14 @@ U8G2 *u8g2;
 #if defined(BOARD_HELTEC)
     U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2_1(U8G2_R0, 16, 15, 4);
     U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2_2(U8G2_R0, 16, 15, 4);
-#elif defined(BOARD_HELTEC_V3) || defined(BOARD_HELTEC_V4) || defined(BOARD_STICK_V3)
+#elif defined(BOARD_HELTEC_V3)
+    // Heltec V3: OLED and sensors (BME280) share ONE bus, Wire, on the display
+    // pins 17/18 (I2C_SDA/I2C_SCL == SDA_PIN/SCL_PIN, configuration.h).
+    // As on the T-Beam Supreme: no clock/data pins in the constructor, or u8g2
+    // would pinMode() them away from the running Wire controller. Reset pin 21 only.
+    U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2_1(U8G2_R0, 21);
+    U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2_2(U8G2_R0, 21);
+#elif defined(BOARD_HELTEC_V4) || defined(BOARD_STICK_V3)
     // Hardware-I2C auf Wire1 (SDA_PIN/SCL_PIN werden vor begin() mit
     // Wire1.setPins() gesetzt, siehe esp32_functions.cpp) statt Software-
     // Bitbanging mit 1-Seiten-Puffer: ein Bild kostete 579 ms auf dem

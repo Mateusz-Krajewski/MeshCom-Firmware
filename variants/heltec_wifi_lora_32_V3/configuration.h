@@ -41,11 +41,11 @@ definitions for HELTEC_V3
 */
 
 #define RESET_OLED RST_OLED
-//issue #108 #define I2C_SDA 17 // I2C pins for this board
-//issue #108 #define I2C_SCL 18
-
-#define I2C_SDA 41 // I2C pins for this board
-#define I2C_SCL 42
+// Sensors (BME280 etc.) share the OLED bus: one controller (Wire) on the
+// display pins 17/18, the OLED runs on Wire too (loop_functions.cpp,
+// esp32_functions.cpp). Before: sensors on Wire 41/42 (issue #108), OLED on Wire1.
+#define I2C_SDA 17 // I2C pins for this board (= SDA_PIN, OLED)
+#define I2C_SCL 18 // (= SCL_PIN, OLED)
 
 #define BUTTON_PIN 0
 #define SET_BUTTON_PIN
